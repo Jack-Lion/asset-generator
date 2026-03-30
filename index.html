@@ -226,11 +226,11 @@ function MockupPreview({title,bgImage,overlays,containerWidth=280,demoCover}){
 }
 
 /* Settings Modal - Ant Design style */
-function SettingsModal({open,onClose,config,setConfig}){
+function SettingsModal({open,onClose,config,setConfig,isMobile}){
   if(!open) return null;
   return(
-    <div style={{position:"fixed",inset:0,zIndex:999,background:"rgba(0,0,0,0.65)",backdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center"}} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"var(--color-bg-elevated)",borderRadius:isMobile?"12px 12px 0 0":"var(--border-radius-lg)",padding:isMobile?"20px 16px":"var(--padding-lg)",width:isMobile?"100%":520,maxHeight:isMobile?"85vh":"80vh",overflowY:"auto",position:isMobile?"fixed":"relative",bottom:isMobile?0:"auto",left:isMobile?0:"auto",border:"1px solid var(--color-border)",boxShadow:"var(--box-shadow)"}}>
+    <div style={{position:"fixed",inset:0,zIndex:999,background:"rgba(0,0,0,0.55)",backdropFilter:"blur(4px)",display:"flex",alignItems:isMobile?"flex-end":"center",justifyContent:"center"}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"var(--color-bg-elevated)",borderRadius:isMobile?"12px 12px 0 0":"var(--border-radius-lg)",padding:isMobile?"20px 16px":"var(--padding-lg)",width:isMobile?"100%":520,maxWidth:"100%",maxHeight:isMobile?"80vh":"80vh",overflowY:"auto",border:"1px solid var(--color-border)",boxShadow:"var(--box-shadow)",WebkitOverflowScrolling:"touch"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
           <h3 style={{margin:0,fontSize:18,fontWeight:700}}>⚙️ 设置</h3>
           <button className="ant-btn-text" onClick={onClose} style={{fontSize:20,border:"none",background:"none",color:"var(--color-text-tertiary)",cursor:"pointer"}}>×</button>
@@ -776,7 +776,7 @@ function App(){
         <button className="ant-btn ant-btn-primary" onClick={handleExport} style={{height:34,fontSize:13}}><IcoDownload/> 批量导出</button>
       </footer>
 
-      <SettingsModal open={settingsOpen} onClose={()=>setSettingsOpen(false)} config={config} setConfig={setConfig}/>
+      <SettingsModal open={settingsOpen} onClose={()=>setSettingsOpen(false)} config={config} setConfig={setConfig} isMobile={isMobile}/>
     </div>
   );
 }
