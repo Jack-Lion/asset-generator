@@ -532,13 +532,35 @@ function App(){
       } else {
         if(!logoImage){setGenStatus("⚠️ 请先上传 Logo");setGenerating(false);return;}
         setGenStatus("📐 处理 Logo...");
-        /* Logo: remove bg → upscale → center with padding in 96x96 */
         const logoProcessed=await new Promise(resolve=>{
           const img=new Image();img.onload=()=>{
-            const s=96,pad=14,r=16;
+            const s=96,r=16,fillPct=0.80;
+            // Step 1: Remove white/light background via flood-fill from edges
+            const tc=document.createElement("canvas");tc.width=img.width;tc.height=img.height;
+            const tctx=tc.getContext("2d");tctx.drawImage(img,0,0);
+            const tid=tctx.getImageData(0,0,tc.width,tc.height);
+            const tw=tc.width,th=tc.height,td=tid.data;
+            const vis=new Uint8Array(tw*th);
+            const q=[];
+            const isLt=(i)=>td[i]>235&&td[i+1]>235&&td[i+2]>235;
+            for(let x=0;x<tw;x++){if(isLt(x*4))q.push(x);const b=(th-1)*tw+x;if(isLt(b*4))q.push(b);}
+            for(let y=0;y<th;y++){if(isLt(y*tw*4))q.push(y*tw);const ri=y*tw+tw-1;if(isLt(ri*4))q.push(ri);}
+            while(q.length){const p=q.shift();if(p<0||p>=tw*th||vis[p])continue;if(!isLt(p*4)&&td[p*4]<=235)continue;vis[p]=1;td[p*4+3]=0;const x=p%tw,y=Math.floor(p/tw);if(x>0)q.push(p-1);if(x<tw-1)q.push(p+1);if(y>0)q.push(p-tw);if(y<th-1)q.push(p+tw);}
+            tctx.putImageData(tid,0,0);
+            setGenStatus("📐 裁剪并居中...");
+            // Step 2: Find content bounding box (non-transparent area after bg removal)
+            const cd=tctx.getImageData(0,0,tw,th);
+            let minX=tw,minY=th,maxX=0,maxY=0;
+            for(let y=0;y<th;y++)for(let x=0;x<tw;x++){
+              if(cd.data[(y*tw+x)*4+3]>20){if(x<minX)minX=x;if(x>maxX)maxX=x;if(y<minY)minY=y;if(y>maxY)maxY=y;}
+            }
+            const cw=Math.max(1,maxX-minX+1),ch=Math.max(1,maxY-minY+1);
+            // Step 3: Crop to content
+            const crop=document.createElement("canvas");crop.width=cw;crop.height=ch;
+            crop.getContext("2d").drawImage(tc,minX,minY,cw,ch,0,0,cw,ch);
+            // Step 4: Draw rounded rect frame
             const cv=document.createElement("canvas");cv.width=s;cv.height=s;
             const ctx=cv.getContext("2d");
-            // Rounded rect with F9F8FC fill + border
             ctx.beginPath();
             ctx.moveTo(r,0);ctx.lineTo(s-r,0);ctx.quadraticCurveTo(s,0,s,r);
             ctx.lineTo(s,s-r);ctx.quadraticCurveTo(s,s,s-r,s);
@@ -547,27 +569,18 @@ function App(){
             ctx.closePath();
             ctx.fillStyle="#F9F8FC";ctx.fill();
             ctx.strokeStyle="#D9D9DE";ctx.lineWidth=1;ctx.stroke();
-            // Remove white/light bg from logo first
-            const tc=document.createElement("canvas");tc.width=img.width;tc.height=img.height;
-            const tctx=tc.getContext("2d");tctx.drawImage(img,0,0);
-            const td=tctx.getImageData(0,0,tc.width,tc.height);
-            for(let i=0;i<td.data.length;i+=4){
-              const rv=td.data[i],gv=td.data[i+1],bv=td.data[i+2];
-              if(rv>240&&gv>240&&bv>240) td.data[i+3]=0;
-            }
-            tctx.putImageData(td,0,0);
-            // Draw logo centered at 70% of frame with HD anti-aliasing
+            // Step 5: Scale cropped content to 80% of frame, centered
             ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality="high";
-            const logoArea=s*0.70;
-            const scale=Math.min(logoArea/img.width,logoArea/img.height);
-            const dw=img.width*scale,dh=img.height*scale;
+            const area=s*fillPct;
+            const sc=Math.min(area/cw,area/ch);
+            const dw=cw*sc,dh=ch*sc;
             const dx=(s-dw)/2,dy=(s-dh)/2;
-            ctx.drawImage(tc,dx,dy,dw,dh);
+            ctx.drawImage(crop,dx,dy,dw,dh);
             resolve(cv.toDataURL("image/png"));
           };img.src=logoImage;
         });
         setGeneratedImages(prev=>({...prev,logo:logoProcessed}));
-        setGenStatus("✅ Logo 已处理 (96×96 · 70% · 居中)");if(isMobile)setMobileTab("canvas");
+        setGenStatus("✅ Logo 已处理 (96×96 · 80% · 居中)");if(isMobile)setMobileTab("canvas");
       }
     }catch(err){setGenStatus(`❌ ${err.message}`);}
     setGenerating(false);
