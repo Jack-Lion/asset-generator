@@ -288,7 +288,7 @@ function App(){
   const [stylePromptTemplate,setStylePromptTemplate]=useState(()=>{
     try{return localStorage.getItem("assetgen_stylePrompt")||"";}catch(e){return "";}
   });
-  const defaultStylePrompt="3D icon of {keyword}, claymorphism clay rubber matte texture, ultra rounded smooth soft shapes, soft diffused studio lighting, limited color palette only 2-3 bright vivid saturated colors with one dominant color taking 60 percent area, isometric 45 degree perspective view, object perfectly centered, pure solid white background no shadows, high quality C4D render, no text no watermark, single object only, toy-like miniature chunky proportions";
+  const defaultStylePrompt="3D icon of {keyword}, semi-matte smooth plastic surface texture like premium vinyl toy, NOT rough NOT clay NOT rubber, ultra rounded puffy inflated shapes with soft beveled edges, gentle studio lighting from top-left with subtle warm highlight on upper edges and soft ambient occlusion in crevices only, MANDATORY color rule: use ONLY 2 maximum 3 colors, one dominant color must cover 60 percent of surface area, all colors must be CLEAN VIVID PURE with high saturation above 0.7 and high brightness above 0.85, GOOD color examples: bright orange FF8500 coral FF6B35 sky blue 4AADFF royal blue 0070E0 cherry red F52B09 lime green 3BCD5E violet 9B5DE5 golden yellow FFBE0A, NEVER use muddy desaturated grayish brownish or washed out colors, isometric 45 degree three-quarter perspective view, object perfectly centered in frame, pure clean solid white background with absolutely no shadows cast on background no gradient on background, high quality C4D Blender render style 3D, no text no letters no numbers no watermark no logo, single object only one item, toy-like miniature chunky thick proportions, friendly approachable modern app icon aesthetic";
   React.useEffect(()=>{try{if(stylePromptTemplate)localStorage.setItem("assetgen_stylePrompt",stylePromptTemplate);}catch(e){}},[stylePromptTemplate]);
   const [refImage,setRefImage]=useState(null);
   const [logoImage,setLogoImage]=useState(null);
@@ -365,54 +365,60 @@ function App(){
     };img.src=dataUrl;
   }),[]);
 
-  const removeWhiteBg=useCallback((dataUrl,threshold=240)=>new Promise(resolve=>{
+  const removeWhiteBg=useCallback((dataUrl)=>new Promise(resolve=>{
     const img=new Image();img.onload=()=>{
       const cv=document.createElement("canvas");cv.width=img.width;cv.height=img.height;
       const ctx=cv.getContext("2d");ctx.drawImage(img,0,0);
       const id=ctx.getImageData(0,0,cv.width,cv.height);
       const w=cv.width,h=cv.height,d=id.data;
-      // Flood-fill from edges: only remove white pixels connected to border
       const visited=new Uint8Array(w*h);
       const queue=[];
-      const isWhite=(i)=>d[i]>threshold&&d[i+1]>threshold&&d[i+2]>threshold;
-      // Seed from all 4 edges
+      const isBgWhite=(i)=>{
+        const r=d[i],g=d[i+1],b=d[i+2];
+        if(r<245||g<245||b<245) return false;
+        const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+        return (mx-mn)<8;
+      };
+      const canSpread=(i)=>{
+        const r=d[i],g=d[i+1],b=d[i+2];
+        if(r<228||g<228||b<228) return false;
+        const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+        return (mx-mn)<18;
+      };
       for(let x=0;x<w;x++){
-        if(isWhite(x*4)) queue.push(x);
-        const bi=(h-1)*w+x;if(isWhite(bi*4)) queue.push(bi);
+        if(isBgWhite(x*4)) queue.push(x);
+        const bi=(h-1)*w+x;if(isBgWhite(bi*4)) queue.push(bi);
       }
       for(let y=0;y<h;y++){
-        if(isWhite(y*w*4)) queue.push(y*w);
-        const ri=y*w+w-1;if(isWhite(ri*4)) queue.push(ri);
+        if(isBgWhite(y*w*4)) queue.push(y*w);
+        const ri=y*w+w-1;if(isBgWhite(ri*4)) queue.push(ri);
       }
-      // BFS flood fill
       while(queue.length>0){
         const p=queue.shift();
         if(p<0||p>=w*h||visited[p]) continue;
         const i=p*4;
-        if(!isWhite(i)&&d[i]<=threshold) continue;
+        if(!canSpread(i)) continue;
         visited[p]=1;
-        d[i+3]=0; // Make transparent
+        d[i+3]=0;
         const x=p%w,y=Math.floor(p/w);
         if(x>0) queue.push(p-1);
         if(x<w-1) queue.push(p+1);
         if(y>0) queue.push(p-w);
         if(y<h-1) queue.push(p+w);
       }
-      // Smooth edges: for pixels adjacent to removed bg, soften alpha
       for(let y=1;y<h-1;y++){for(let x=1;x<w-1;x++){
         const p=y*w+x;
         if(visited[p]) continue;
         const i=p*4;
-        // Count how many neighbors are transparent (removed bg)
         let bgN=0;
         if(visited[p-1]) bgN++;if(visited[p+1]) bgN++;
         if(visited[p-w]) bgN++;if(visited[p+w]) bgN++;
         if(bgN>0&&bgN<4){
-          // Edge pixel - apply soft alpha based on brightness
-          const br=(d[i]+d[i+1]+d[i+2])/3;
-          if(br>220){
-            const alpha=Math.round(((255-br)/35)*255);
-            d[i+3]=Math.min(d[i+3],Math.max(40,alpha));
+          const r=d[i],g=d[i+1],b=d[i+2];
+          const br=(r+g+b)/3;
+          const mx=Math.max(r,g,b),mn=Math.min(r,g,b),sat=mx>0?(mx-mn)/mx:0;
+          if(br>238&&sat<0.05){
+            d[i+3]=Math.max(20,Math.round((255-br)*10));
           }
         }
       }}
@@ -456,7 +462,7 @@ function App(){
       let apiUrl,headers,body;
       const tpl=stylePromptTemplate||defaultStylePrompt;
       const stylePrompt=tpl.replace("{keyword}",keyword).replace("{color}",iconColor)+` in ${iconColor} color tone`;
-      const negPrompt="blurry, low quality, flat, 2D, text, letters, words, watermark, logo, signature, ugly, deformed, dark background, multiple objects, complex scene, shadow on background, gradient background, realistic photo, human, face, hand, fingers, thin details, sharp edges, wireframe, outline stroke";
+      const negPrompt="blurry, low quality, flat, 2D, text, letters, words, numbers, watermark, logo, signature, ugly, deformed, dark background, multiple objects, complex scene, shadow on background, gradient background, realistic photo, human, face, hand, fingers, thin details, sharp edges, wireframe, outline stroke, desaturated colors, muddy colors, brownish tint, grayish colors, washed out pale colors, dull matte finish, dusty appearance, dark navy blue details, olive green, khaki, beige, tan, rust color, maroon, dark purple, faded pastel, low contrast, dirty texture, rough surface, grainy";
 
       if(config.engine==="siliconflow"){
         apiUrl="https://api.siliconflow.cn/v1/images/generations";
@@ -542,10 +548,11 @@ function App(){
             const tw=tc.width,th=tc.height,td=tid.data;
             const vis=new Uint8Array(tw*th);
             const q=[];
-            const isLt=(i)=>td[i]>235&&td[i+1]>235&&td[i+2]>235;
-            for(let x=0;x<tw;x++){if(isLt(x*4))q.push(x);const b=(th-1)*tw+x;if(isLt(b*4))q.push(b);}
-            for(let y=0;y<th;y++){if(isLt(y*tw*4))q.push(y*tw);const ri=y*tw+tw-1;if(isLt(ri*4))q.push(ri);}
-            while(q.length){const p=q.shift();if(p<0||p>=tw*th||vis[p])continue;if(!isLt(p*4)&&td[p*4]<=235)continue;vis[p]=1;td[p*4+3]=0;const x=p%tw,y=Math.floor(p/tw);if(x>0)q.push(p-1);if(x<tw-1)q.push(p+1);if(y>0)q.push(p-tw);if(y<th-1)q.push(p+tw);}
+            const isSeedWh=(i)=>td[i]>245&&td[i+1]>245&&td[i+2]>245&&(Math.max(td[i],td[i+1],td[i+2])-Math.min(td[i],td[i+1],td[i+2]))<8;
+            const canGo=(i)=>td[i]>228&&td[i+1]>228&&td[i+2]>228&&(Math.max(td[i],td[i+1],td[i+2])-Math.min(td[i],td[i+1],td[i+2]))<18;
+            for(let x=0;x<tw;x++){if(isSeedWh(x*4))q.push(x);const b=(th-1)*tw+x;if(isSeedWh(b*4))q.push(b);}
+            for(let y=0;y<th;y++){if(isSeedWh(y*tw*4))q.push(y*tw);const ri=y*tw+tw-1;if(isSeedWh(ri*4))q.push(ri);}
+            while(q.length){const p=q.shift();if(p<0||p>=tw*th||vis[p])continue;if(!canGo(p*4))continue;vis[p]=1;td[p*4+3]=0;const x=p%tw,y=Math.floor(p/tw);if(x>0)q.push(p-1);if(x<tw-1)q.push(p+1);if(y>0)q.push(p-tw);if(y<th-1)q.push(p+tw);}
             tctx.putImageData(tid,0,0);
             setGenStatus("📐 裁剪并居中...");
             // Step 2: Find content bounding box (non-transparent area after bg removal)
