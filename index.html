@@ -371,55 +371,57 @@ function App(){
       const ctx=cv.getContext("2d");ctx.drawImage(img,0,0);
       const id=ctx.getImageData(0,0,cv.width,cv.height);
       const w=cv.width,h=cv.height,d=id.data;
+      // Step 1: Sample corners to detect actual background color
+      const corners=[[0,0],[w-1,0],[0,h-1],[w-1,h-1],[1,1],[w-2,1],[1,h-2],[w-2,h-2]];
+      let bgR=0,bgG=0,bgB=0,n=0;
+      for(const[cx,cy] of corners){
+        const i=(cy*w+cx)*4;
+        bgR+=d[i];bgG+=d[i+1];bgB+=d[i+2];n++;
+      }
+      bgR=Math.round(bgR/n);bgG=Math.round(bgG/n);bgB=Math.round(bgB/n);
+      // If corners aren't white-ish, image might not have white bg
+      if(bgR<220||bgG<220||bgB<220){resolve(cv.toDataURL("image/png"));return;}
+      // Step 2: Flood-fill from edges, only spreading through pixels
+      // that are SIMILAR to the detected background color
       const visited=new Uint8Array(w*h);
       const queue=[];
-      const isBgWhite=(i)=>{
-        const r=d[i],g=d[i+1],b=d[i+2];
-        if(r<245||g<245||b<245) return false;
-        const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
-        return (mx-mn)<8;
+      const isSimilarToBg=(i)=>{
+        const dr=Math.abs(d[i]-bgR),dg=Math.abs(d[i+1]-bgG),db=Math.abs(d[i+2]-bgB);
+        return dr<8&&dg<8&&db<8; // Must be extremely close to bg color
       };
-      const canSpread=(i)=>{
-        const r=d[i],g=d[i+1],b=d[i+2];
-        if(r<228||g<228||b<228) return false;
-        const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
-        return (mx-mn)<18;
-      };
+      // Seed from edges
       for(let x=0;x<w;x++){
-        if(isBgWhite(x*4)) queue.push(x);
-        const bi=(h-1)*w+x;if(isBgWhite(bi*4)) queue.push(bi);
+        if(isSimilarToBg(x*4))queue.push(x);
+        const bi=(h-1)*w+x;if(isSimilarToBg(bi*4))queue.push(bi);
       }
-      for(let y=0;y<h;y++){
-        if(isBgWhite(y*w*4)) queue.push(y*w);
-        const ri=y*w+w-1;if(isBgWhite(ri*4)) queue.push(ri);
+      for(let y=1;y<h-1;y++){
+        if(isSimilarToBg(y*w*4))queue.push(y*w);
+        const ri=y*w+w-1;if(isSimilarToBg(ri*4))queue.push(ri);
       }
+      // BFS - only spread to pixels similar to background
       while(queue.length>0){
         const p=queue.shift();
-        if(p<0||p>=w*h||visited[p]) continue;
-        const i=p*4;
-        if(!canSpread(i)) continue;
+        if(p<0||p>=w*h||visited[p])continue;
+        if(!isSimilarToBg(p*4))continue;
         visited[p]=1;
-        d[i+3]=0;
+        d[p*4+3]=0;
         const x=p%w,y=Math.floor(p/w);
-        if(x>0) queue.push(p-1);
-        if(x<w-1) queue.push(p+1);
-        if(y>0) queue.push(p-w);
-        if(y<h-1) queue.push(p+w);
+        if(x>0)queue.push(p-1);
+        if(x<w-1)queue.push(p+1);
+        if(y>0)queue.push(p-w);
+        if(y<h-1)queue.push(p+w);
       }
+      // Step 3: Soft anti-alias edges
       for(let y=1;y<h-1;y++){for(let x=1;x<w-1;x++){
         const p=y*w+x;
-        if(visited[p]) continue;
+        if(visited[p])continue;
         const i=p*4;
         let bgN=0;
-        if(visited[p-1]) bgN++;if(visited[p+1]) bgN++;
-        if(visited[p-w]) bgN++;if(visited[p+w]) bgN++;
-        if(bgN>0&&bgN<4){
-          const r=d[i],g=d[i+1],b=d[i+2];
-          const br=(r+g+b)/3;
-          const mx=Math.max(r,g,b),mn=Math.min(r,g,b),sat=mx>0?(mx-mn)/mx:0;
-          if(br>238&&sat<0.05){
-            d[i+3]=Math.max(20,Math.round((255-br)*10));
-          }
+        if(visited[p-1])bgN++;if(visited[p+1])bgN++;
+        if(visited[p-w])bgN++;if(visited[p+w])bgN++;
+        if(bgN>0&&bgN<4&&isSimilarToBg(i)){
+          const dist=Math.sqrt(Math.pow(d[i]-bgR,2)+Math.pow(d[i+1]-bgG,2)+Math.pow(d[i+2]-bgB,2));
+          d[i+3]=Math.min(255,Math.max(30,Math.round(dist*12)));
         }
       }}
       ctx.putImageData(id,0,0);resolve(cv.toDataURL("image/png"));
@@ -548,8 +550,8 @@ function App(){
             const tw=tc.width,th=tc.height,td=tid.data;
             const vis=new Uint8Array(tw*th);
             const q=[];
-            const isSeedWh=(i)=>td[i]>245&&td[i+1]>245&&td[i+2]>245&&(Math.max(td[i],td[i+1],td[i+2])-Math.min(td[i],td[i+1],td[i+2]))<8;
-            const canGo=(i)=>td[i]>228&&td[i+1]>228&&td[i+2]>228&&(Math.max(td[i],td[i+1],td[i+2])-Math.min(td[i],td[i+1],td[i+2]))<18;
+            const crnrs=[[0,0],[tw-1,0],[0,th-1],[tw-1,th-1]];let bR=0,bG=0,bB=0;crnrs.forEach(([cx,cy])=>{const ci=(cy*tw+cx)*4;bR+=td[ci];bG+=td[ci+1];bB+=td[ci+2];});bR=Math.round(bR/4);bG=Math.round(bG/4);bB=Math.round(bB/4);const isSeedWh=(i)=>Math.abs(td[i]-bR)<8&&Math.abs(td[i+1]-bG)<8&&Math.abs(td[i+2]-bB)<8&&bR>220;
+            const canGo=(i)=>Math.abs(td[i]-bR)<10&&Math.abs(td[i+1]-bG)<10&&Math.abs(td[i+2]-bB)<15;
             for(let x=0;x<tw;x++){if(isSeedWh(x*4))q.push(x);const b=(th-1)*tw+x;if(isSeedWh(b*4))q.push(b);}
             for(let y=0;y<th;y++){if(isSeedWh(y*tw*4))q.push(y*tw);const ri=y*tw+tw-1;if(isSeedWh(ri*4))q.push(ri);}
             while(q.length){const p=q.shift();if(p<0||p>=tw*th||vis[p])continue;if(!canGo(p*4))continue;vis[p]=1;td[p*4+3]=0;const x=p%tw,y=Math.floor(p/tw);if(x>0)q.push(p-1);if(x<tw-1)q.push(p+1);if(y>0)q.push(p-tw);if(y<th-1)q.push(p+tw);}
@@ -710,14 +712,14 @@ function App(){
                 )}
               </div>
               <div style={{padding:10,background:"var(--color-bg-spotlight)",borderRadius:"var(--border-radius)",marginBottom:12}}>
-                <div style={{color:"var(--color-text-tertiary)",fontSize:11,lineHeight:1.6}}>处理流程：抠除背景 → 高清化 → 居中缩放至 70% → 96×96 输出</div>
+                <div style={{color:"var(--color-text-tertiary)",fontSize:11,lineHeight:1.6}}>处理流程：抠除背景 → 高清化 → 居中缩放至 80% → 96×96 输出</div>
               </div>
             </>
           )}
 
           {/* Generate Button */}
           <button className="ant-btn ant-btn-primary" onClick={handleGenerate} disabled={generating} style={{width:"100%",height:42,fontSize:14,borderRadius:"var(--border-radius)",marginBottom:8}}>
-            {generating?(<><span style={{display:"inline-block",width:14,height:14,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.6s linear infinite"}}/>生成中...</>):(<><IcoSparkle/>{tab==="3dicon"&&prompt?`AI 生成「${prompt}」`:tab==="3dicon"?"AI 一键生成":"处理 Logo"}</>)}
+            {generating?(<><span style={{display:"inline-block",width:14,height:14,border:"2px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin 0.6s linear infinite"}}/>生成中...</>):(<><IcoSparkle/>{tab==="3dicon"?"AI 一键生成":"处理 Logo"}</>)}
           </button>
           {(generatedImages.small||generatedImages.smallHome||generatedImages.large||generatedImages.logo)&&
             <button className="ant-btn" onClick={resetAll} style={{width:"100%",height:32,fontSize:12,marginBottom:8}}><IcoRefresh/> 重置预览</button>
